@@ -1,9 +1,11 @@
-import socket, _thread, sys
+import socket, _thread, sys, requests, os
+from urllib.request import Request, urlopen, HTTPError
 
 max_conn = 5
 buffer_size = 8192
+cache = []
 
-def start():
+def startProxy():
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', 8080))
@@ -67,7 +69,7 @@ def decodeRequest(conn, data, port):
 
         # Default port.
         if port_pos == -1 or baseURL_pos < port_pos:
-            port = 8080
+            port = 80
             baseURL = tmp[:baseURL_pos]
         
         # Specific port.
@@ -77,11 +79,11 @@ def decodeRequest(conn, data, port):
         
         # Re-encode the data into bytes.
         data = data.encode(encoding)
-        proxy_server(baseURL, port, conn, data, check_method)
+        proxyServer(baseURL, url, port, conn, data, check_method)
     except Exception as e:
         pass
 
-def proxy_server(baseURL, port, conn, data, check_method):
+def proxyServer(baseURL, url, port, conn, data, check_method):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     if check_method == "CONNECT":
@@ -109,33 +111,80 @@ def proxy_server(baseURL, port, conn, data, check_method):
                 dar = float(dar/1024)
                 dar = "%.3s" % (str(dar))
                 dar = "%s KB" % (dar)
-                print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
+                #print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
             except socket.error as e:
                 pass
     else:
-        sock.connect((baseURL, port))
-        sock.send(data)
-        try:
-            while True:
-                reply = sock.recv(buffer_size)
-                if (len(reply) > 0):
-                    conn.send(reply)
-                    dar = float(len(reply))
-                    dar = float(dar/1024)
-                    dar = "%.3s" % (str(dar))
-                    dar = "%s KB" % (dar)
-                    print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
-                else:
-                    break
-            sock.close()
-            conn.close
+        if baseURL not in cache:
+            sock.connect((baseURL, port))
+            sock.send(data)
+            cache.append(baseURL)
+            print("This request has not previously been cached.")
+            serv_file = fetch_from_server(url)
+            if serv_file:
+                save_in_cache(url, baseURL, serv_file)
 
-        except socket.error:
-            sock.close()
-            conn.close()
-            sys.exit(1)
+            try:
+                while True:
+                    reply = sock.recv(buffer_size)
+                    if (len(reply) > 0):
+                        conn.send(reply)
+                        dar = float(len(reply))
+                        dar = float(dar/1024)
+                        dar = "%.3s" % (str(dar))
+                        dar = "%s KB" % (dar)
+                        #print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
+                    else:
+                        break
+                sock.close()
+                conn.close
 
-        sock.close()
-        conn.close()
+            except socket.error:
+                sock.close()
+                conn.close()
+                sys.exit(1)
+        
+        else:
+            content = fetch_from_cache(baseURL)
+            print(content)
+            resp = 'HTTP/1.0 200 OK\n\n' + content
+            conn.send(resp.encode())
+            
+    sock.close()
+    conn.close()
 
-start()
+def fetch_from_cache(baseURL):
+    try:
+        # Check if we have this file locally
+        fin = open(baseURL)
+        content = fin.read()
+        fin.close()
+        # If we have it, let's send it
+        return content
+    except IOError:
+        return None
+
+
+def fetch_from_server(filename):
+    q = Request(filename)
+    try:
+        response = urlopen(q)
+        # Grab the header and content from the server req
+        response_headers = response.info()
+        content = response.read().decode('utf-8')
+        return content
+    except HTTPError:
+        return None
+
+
+def save_in_cache(filename, baseURL, content):
+    print('Saving a copy of {} in the cache'.format(filename))
+    try:
+        cached_file = open(baseURL, 'w')
+    except Exception as e:
+        print(e)
+    cached_file.write(content)
+    cached_file.close()
+
+
+startProxy()

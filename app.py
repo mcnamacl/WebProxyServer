@@ -1,5 +1,4 @@
-import socket, sys, ssl
-import _thread
+import socket, _thread
 
 max_conn = 5
 buffer_size = 8192
@@ -9,36 +8,30 @@ def start():
         s_http = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s_http.bind(('127.0.0.1', 8080))
         s_http.listen(max_conn)
-        s_https = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s_https.bind(('127.0.0.1'), 8081)
-        s_https.listen(max_conn)
         print("Server started successfully!")
     except Exception as e:
         print(e)
         sys.exit(2)
     
-    while 1:
+    print("Starting to listen for connections...")
+    _thread.start_new_thread(listen, (s_http, 8080))
+
+    while(1):
+        one = 1
+
+def listen(s_http, port):
+    while(1):
         try:
-            print("starting sockets")
-            conn, addr = s_http.accept()
+            conn, _ = s_http.accept()
             data = conn.recv(buffer_size)
-            _thread.start_new_thread(conn_string, (conn, data, addr))
-            # context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            # context.load_cert_chain(certfile="C:/Users/mcnam/Documents/GitHub/WebProxyServer/cert.pem", keyfile="C:/Users/mcnam/Documents/GitHub/WebProxyServer/key.pem")
-            # s_sock = context.wrap_socket(s, server_side=True)
-            # conn, addr = s_sock.accept()
-            # print("1")
-            # data = conn.recv(buffer_size)
-            # print("3")
-            # _thread.start_new_thread(conn_string, (conn, data, addr))
+            _thread.start_new_thread(decodeRequest, (conn, data, port))
         except Exception as e:
             s_http.close()
             print(e)
             sys.exit(1)
-    
-def conn_string(conn, data, addr):
+
+def decodeRequest(conn, data, port):
     try:
-        print(data)
         encoding = 'utf-8'
         data = data.decode(encoding)
         first_line = data.split('\n')[0]
@@ -73,67 +66,67 @@ def conn_string(conn, data, addr):
             webserver = tmp[:port_pos]
         
         data = data.encode(encoding)
-        proxy_server(webserver, port, conn, addr, data, check_method)
+        proxy_server(webserver, port, conn, data, check_method)
     except Exception as e:
         pass
 
-def proxy_server(webserver, port, conn, addr, data, check_method):
+def proxy_server(webserver, port, conn, data, check_method):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     if check_method == "CONNECT":
-        # Connect to port 443
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # If successful, send 200 code response
-            port = 443
-            s.connect(( webserver, port ))
-            reply = "CONNECT %s:%s HTTP/1.0\r\nConnection: close\r\n\r\n" % (webserver, port)
-            s.sendall( reply.encode() )
-        except socket.error as err:
-            print(err)
-                    
+            sock.connect((webserver, port))
+            reply = "HTTP/1.0 200 Connection established\r\n"
+            reply += "Proxy-agent: Pyx\r\n"
+            reply += "\r\n"
+            conn.sendall(reply.encode())
+        except socket.error as e:
+            print(e)
+            return
+
+        conn.setblocking(0)
+        sock.setblocking(0)
+
         while True:
             try:
                 request = conn.recv(buffer_size)
-                s.sendall( request )
-            except socket.error as err:
+                sock.sendall(request)
+            except socket.error as e:
                 pass
             try:
-                reply = s.recv(buffer_size)
-                conn.sendall( reply )
-            except socket.error as err:
+                reply = sock.recv(buffer_size)
+                conn.sendall(reply)
+                dar = float(len(reply))
+                dar = float(dar/1024)
+                dar = "%.3s" % (str(dar))
+                dar = "%s KB" % (dar)
+                print("Request Done: %s => %s <= " % (str(webserver), str(dar)))
+            except socket.error as e:
                 pass
-        
-        s.close()
-        conn.close()
     else:
+        sock.connect((webserver, port))
+        sock.send(data)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((webserver, port))
-            s.send(data)
-
-            while 1:
-                reply = s.recv(buffer_size)
-                
-                if (len(reply)>0):
-                    print(reply)
+            while True:
+                reply = sock.recv(buffer_size)
+                if (len(reply) > 0):
                     conn.send(reply)
-
                     dar = float(len(reply))
                     dar = float(dar/1024)
                     dar = "%.3s" % (str(dar))
                     dar = "%s KB" % (dar)
-                    print("Request Done: %s => %s <= " % (str(addr[0]), str(dar)))
-
+                    print("Request Done: %s => %s <= " % (str(webserver), str(dar)))
                 else:
                     break
+            sock.close()
+            conn.close
 
-        except Exception as e:
-            print(e)
-            s.close()
+        except socket.error:
+            sock.close()
             conn.close()
             sys.exit(1)
 
-        s.close()
+        sock.close()
         conn.close()
 
 start()
-

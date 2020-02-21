@@ -1,84 +1,93 @@
-import socket, _thread
+import socket, _thread, sys
 
 max_conn = 5
 buffer_size = 8192
 
 def start():
     try:
-        s_http = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s_http.bind(('127.0.0.1', 8080))
-        s_http.listen(max_conn)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', 8080))
+        sock.listen(max_conn)
         print("Server started successfully!")
     except Exception as e:
         print(e)
         sys.exit(2)
     
     print("Starting to listen for connections...")
-    _thread.start_new_thread(listen, (s_http, 8080))
+    _thread.start_new_thread(listen, (sock, 8080))
 
     while(1):
         one = 1
 
-def listen(s_http, port):
+# Listens on port 8080 for requests.
+def listen(sock, port):
     while(1):
         try:
-            conn, _ = s_http.accept()
+            conn, _ = sock.accept()
             data = conn.recv(buffer_size)
             _thread.start_new_thread(decodeRequest, (conn, data, port))
         except Exception as e:
-            s_http.close()
+            sock.close()
             print(e)
             sys.exit(1)
 
 def decodeRequest(conn, data, port):
     try:
         encoding = 'utf-8'
+
+        # The recieved data is in bytes and therefore needs to be decoded.
         data = data.decode(encoding)
         first_line = data.split('\n')[0]
         first_line = first_line.split(' ')
+
+        # This is to tell whether we are dealing with HTTP or HTTPS.
         check_method = first_line[0]
+
         url = first_line[1]
         http_pos = url.find("://")
-        print(url)
         if (http_pos == -1):
             tmp = url
+        # HTTP Request
         elif check_method == "GET":
             tmp = url[(http_pos+3):]
+        # HTTPS Request
         else:
             tmp = url[(http_pos+4):]
         
         port_pos = tmp.find(":")
 
-        webserver_pos = tmp.find("/")
+        baseURL_pos = tmp.find("/")
 
-        if webserver_pos == -1:
-            webserver_pos = len(tmp)
+        if baseURL_pos == -1:
+            baseURL_pos = len(tmp)
         
-        webserver = ""
+        baseURL = ""
 
         port = -1
-        if port_pos == -1 or webserver_pos < port_pos:
-            port = 80
-            webserver = tmp[:webserver_pos]
+
+        # Default port.
+        if port_pos == -1 or baseURL_pos < port_pos:
+            port = 8080
+            baseURL = tmp[:baseURL_pos]
         
+        # Specific port.
         else:
-            port = int((tmp[(port_pos+1):])[:webserver_pos-port_pos-1])
-            webserver = tmp[:port_pos]
+            port = int((tmp[(port_pos+1):])[:baseURL_pos-port_pos-1])
+            baseURL = tmp[:port_pos]
         
+        # Re-encode the data into bytes.
         data = data.encode(encoding)
-        proxy_server(webserver, port, conn, data, check_method)
+        proxy_server(baseURL, port, conn, data, check_method)
     except Exception as e:
         pass
 
-def proxy_server(webserver, port, conn, data, check_method):
+def proxy_server(baseURL, port, conn, data, check_method):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     if check_method == "CONNECT":
         try:
-            sock.connect((webserver, port))
-            reply = "HTTP/1.0 200 Connection established\r\n"
-            reply += "Proxy-agent: Pyx\r\n"
-            reply += "\r\n"
+            sock.connect((baseURL, port))
+            reply = "HTTP/1.0 200 Connection established\r\nProxy-agent: Claires_Proxy\r\n\r\n"
             conn.sendall(reply.encode())
         except socket.error as e:
             print(e)
@@ -100,11 +109,11 @@ def proxy_server(webserver, port, conn, data, check_method):
                 dar = float(dar/1024)
                 dar = "%.3s" % (str(dar))
                 dar = "%s KB" % (dar)
-                print("Request Done: %s => %s <= " % (str(webserver), str(dar)))
+                print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
             except socket.error as e:
                 pass
     else:
-        sock.connect((webserver, port))
+        sock.connect((baseURL, port))
         sock.send(data)
         try:
             while True:
@@ -115,7 +124,7 @@ def proxy_server(webserver, port, conn, data, check_method):
                     dar = float(dar/1024)
                     dar = "%.3s" % (str(dar))
                     dar = "%s KB" % (dar)
-                    print("Request Done: %s => %s <= " % (str(webserver), str(dar)))
+                    print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
                 else:
                     break
             sock.close()

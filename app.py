@@ -1,4 +1,4 @@
-import socket, _thread, sys, requests, os
+import socket, _thread, sys, requests, os, time
 from urllib.request import Request, urlopen, HTTPError
 
 max_conn = 5
@@ -116,6 +116,7 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
                 pass
     else:
         if baseURL not in cache:
+            tic = time.perf_counter()
             sock.connect((baseURL, port))
             sock.send(data)
             cache.append(baseURL)
@@ -123,6 +124,9 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
             serv_file = fetch_from_server(url)
             if serv_file:
                 save_in_cache(url, baseURL, serv_file)
+            
+            toc = time.perf_counter()
+            print(f"Request took: {toc - tic:0.4f} seconds")
 
             try:
                 while True:
@@ -145,8 +149,10 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
                 sys.exit(1)
         
         else:
+            tic = time.perf_counter()
             content = fetch_from_cache(baseURL)
-            print(content)
+            toc = time.perf_counter()
+            print(f"Cache took: {toc - tic:0.4f} seconds")
             resp = 'HTTP/1.0 200 OK\n\n' + content
             conn.send(resp.encode())
             

@@ -161,21 +161,18 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
 
 def fetch_from_cache(baseURL):
     try:
-        # Check if we have this file locally
         fin = open(baseURL)
         content = fin.read()
         fin.close()
-        # If we have it, let's send it
         return content
     except IOError:
         return None
 
 
 def fetch_from_server(filename):
-    q = Request(filename)
+    req = Request(filename)
     try:
-        response = urlopen(q)
-        # Grab the header and content from the server req
+        response = urlopen(req)
         response_headers = response.info()
         content = response.read().decode('utf-8')
         return content

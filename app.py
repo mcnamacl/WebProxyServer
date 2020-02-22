@@ -21,7 +21,7 @@ class proxy_cmd(Cmd):
         if not "www." in url:
             url = "www." + url
         blockedURLs.append(url)
-        print('Blocked :', url)
+        print('Blocked:', url)
     
     # Show all the currently blocked URLs.
     def do_getblocked(self, args):
@@ -31,13 +31,15 @@ class proxy_cmd(Cmd):
     def do_unblock(self, args):
         url = args.rsplit(" ", 1) 
         url = url[0]
+
+        # Unify all saved URLs.
         if not "www." in url:
             url = "www." + url
         if url not in blockedURLs:
             print('This url had not been previously blocked.')
         else:
             blockedURLs.remove(url)
-            print('Unblocked : ', url)
+            print('Unblocked: ', url)
     
     # Display all available commands.
     def do_help(self, args):
@@ -80,7 +82,8 @@ def startProxy():
 
 # Listens for user input.
 def consoleThread(console, irr):
-    console.cmdloop("Enter URL to be blocked: eg. block www.example.com or help to see available commands.")
+    console.cmdloop("Enter URL to be blocked: eg. block www.example.com or " +
+        "help to see available commands.")
 
 def decodeRequest(conn, req, port):
     try:
@@ -93,7 +96,8 @@ def decodeRequest(conn, req, port):
         else: 
             checkBlocked = baseURL
         
-        # If the URL has been blocked, close the connection and inform the user that the site they're requesting is blocked.
+        # If the URL has been blocked, close the connection and inform the user that 
+        # the site they're requesting is blocked.
         if checkBlocked in blockedURLs:
             print(f"{url} has been blocked.")
             conn.close()
@@ -115,17 +119,14 @@ def breakUpReq(req):
     check_method = tmp[0]
 
     url = tmp[1]
-    http_pos = url.find("://")
+    httpPos = url.find("://")
 
-    # There is no http/https in the request.
-    if (http_pos == -1):
-        tmp = url
     # HTTP Request
-    elif check_method == "GET":
-        tmp = url[(http_pos+3):]
+    if check_method == "GET":
+        tmp = url[(httpPos+3):]
     # HTTPS Request
     else:
-        tmp = url[(http_pos+4):]
+        tmp = url[(httpPos+4):]
     
     portPos = tmp.find(":")
     baseURLPos = tmp.find("/")
@@ -192,7 +193,7 @@ def proxyServer(baseURL, url, port, conn, req, check_method):
             result = cacheRequest(url, baseURL)        
             
             if result:
-                print("Caching has successfully been carried out.")
+                print("Caching as the page wanted has successfully been carried out.")
             else:
                 print("Caching didn't work :(.")
             toc = time.perf_counter()
@@ -204,11 +205,10 @@ def proxyServer(baseURL, url, port, conn, req, check_method):
                     resp = sock.recv(bufferSize)
                     if (len(resp) > 0):
                         conn.send(resp)
-                        bandwidth = float(len(resp))
-                        bandwidth = float(bandwidth/1024)
+                        bandwidth = float(len(resp))/1024
                         bandwidth = "%.3s" % (str(bandwidth))
                         bandwidth = "%s KB" % (bandwidth)
-                        print("Request Complete: %s Bandwidth Used: %s " % (str(baseURL), str(bandwidth)))
+                        print(f"Bandwidth Used: {bandwidth}")
                     else:
                         break
                 sock.close()
@@ -271,6 +271,9 @@ def cacheRequest(cacheFilename, baseURL):
             currTime = datetime.datetime.now()
             # Adds the amount of seconds to the current time.
             expiry = currTime + datetime.timedelta(0,expiry)
+        
+        # Adds the baseURL as the key to the cache dictionary along with the time its due to 
+        # become invalid if  that exists.
         cache[baseURL] = expiry
         info = response.read().decode(enc)
 
@@ -288,4 +291,5 @@ def cacheRequest(cacheFilename, baseURL):
     except HTTPError:
         return False
 
+# Starts the proxy server.
 startProxy()

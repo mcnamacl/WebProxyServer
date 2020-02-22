@@ -1,11 +1,36 @@
 import socket, _thread, sys, requests, os, time
 from urllib.request import Request, urlopen, HTTPError
+from cmd import Cmd
 
 max_conn = 5
-buffer_size = 8192
+bufferSize = 8192
 cache = []
+blockedURLs = []
+
+class proxy_cmd(Cmd):
+
+    prompt = "> "
+
+    def do_block(self, args):
+        url = args.rsplit(" ", 1) # args is string of input after create
+        url = url[0]
+        blockedURLs.append(url)
+        print('Blocked :', url)
+    
+    def do_getblocked(self, args):
+        print(blockedURLs)
+    
+    def do_help(self, args):
+        print("To block a URL type: `block` followed by the url.")
+        print("To see what URLS are currently blocked type: `getblocked`.")
+        print("To exit type: `exit`.")
+
+    def do_exit(self, args):
+        raise SystemExit()
 
 def startProxy():
+    console = proxy_cmd()
+    _thread.start_new_thread(consoleThread, (console, None))
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', 8080))
@@ -16,22 +41,20 @@ def startProxy():
         sys.exit(2)
     
     print("Starting to listen for connections...")
-    _thread.start_new_thread(listen, (sock, 8080))
-
-    while(1):
-        one = 1
-
-# Listens on port 8080 for requests.
-def listen(sock, port):
+    # Listens on port 8080 for connections.
+    port = 8080
     while(1):
         try:
             conn, _ = sock.accept()
-            data = conn.recv(buffer_size)
+            data = conn.recv(bufferSize)
             _thread.start_new_thread(decodeRequest, (conn, data, port))
         except Exception as e:
             sock.close()
             print(e)
             sys.exit(1)
+
+def consoleThread(console, irr):
+    console.cmdloop("Enter URL to be blocked: eg. block www.example.com or help to see available commands.")
 
 def decodeRequest(conn, data, port):
     try:
@@ -76,21 +99,28 @@ def decodeRequest(conn, data, port):
         else:
             port = int((tmp[(port_pos+1):])[:baseURL_pos-port_pos-1])
             baseURL = tmp[:port_pos]
-        
-        # Re-encode the data into bytes.
-        data = data.encode(encoding)
-        proxyServer(baseURL, url, port, conn, data, check_method)
+
+        if baseURL in blockedURLs:
+            print(f"{url} has been blocked.")
+            conn.close()
+            return
+        else:
+            # Re-encode the data into bytes.
+            data = data.encode(encoding)
+            proxyServer(baseURL, url, port, conn, data, check_method)
     except Exception as e:
         pass
 
 def proxyServer(baseURL, url, port, conn, data, check_method):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    # HTTPS 
     if check_method == "CONNECT":
         try:
             sock.connect((baseURL, port))
-            reply = "HTTP/1.0 200 Connection established\r\nProxy-agent: Claires_Proxy\r\n\r\n"
-            conn.sendall(reply.encode())
+            resp = "HTTP/1.0 200 Connection established\r\nProxy-agent: Claires_Proxy\r\n\r\n"
+            conn.sendall(resp.encode())
+            print(f"Connecting to: {baseURL}.")
         except socket.error as e:
             print(e)
             return
@@ -100,20 +130,22 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
 
         while True:
             try:
-                request = conn.recv(buffer_size)
+                request = conn.recv(bufferSize)
                 sock.sendall(request)
             except socket.error as e:
                 pass
             try:
-                reply = sock.recv(buffer_size)
-                conn.sendall(reply)
-                dar = float(len(reply))
-                dar = float(dar/1024)
-                dar = "%.3s" % (str(dar))
-                dar = "%s KB" % (dar)
-                #print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
+                resp = sock.recv(bufferSize)
+                conn.sendall(resp)
+                bandwidth = float(len(resp))
+                bandwidth = float(bandwidth/1024)
+                bandwidth = "%.3s" % (str(bandwidth))
+                bandwidth = "%s KB" % (bandwidth)
+                #print("Request Complete: %s Bandwidth Used: %s " % (str(baseURL), str(bandwidth)))
             except socket.error as e:
                 pass
+
+    # HTTP that has not been accessed before.
     else:
         if baseURL not in cache:
             tic = time.perf_counter()
@@ -121,23 +153,23 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
             sock.send(data)
             cache.append(baseURL)
             print("This request has not previously been cached.")
-            serv_file = fetch_from_server(url)
+            serv_file = getFromServer(url)
             if serv_file:
-                save_in_cache(url, baseURL, serv_file)
+                saveInCache(url, baseURL, serv_file)
             
             toc = time.perf_counter()
             print(f"Request took: {toc - tic:0.4f} seconds")
 
             try:
                 while True:
-                    reply = sock.recv(buffer_size)
-                    if (len(reply) > 0):
-                        conn.send(reply)
-                        dar = float(len(reply))
-                        dar = float(dar/1024)
-                        dar = "%.3s" % (str(dar))
-                        dar = "%s KB" % (dar)
-                        #print("Request Complete: %s -> %s <- " % (str(baseURL), str(dar)))
+                    resp = sock.recv(bufferSize)
+                    if (len(resp) > 0):
+                        conn.send(resp)
+                        bandwidth = float(len(resp))
+                        bandwidth = float(bandwidth/1024)
+                        bandwidth = "%.3s" % (str(bandwidth))
+                        bandwidth = "%s KB" % (bandwidth)
+                        print("Request Complete: %s Bandwidth Used: %s " % (str(baseURL), str(bandwidth)))
                     else:
                         break
                 sock.close()
@@ -147,19 +179,20 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
                 sock.close()
                 conn.close()
                 sys.exit(1)
-        
+            
+        # HTTP that has been stored in cache previously.
         else:
             tic = time.perf_counter()
-            content = fetch_from_cache(baseURL)
+            content = getFromCache(baseURL)
             toc = time.perf_counter()
             print(f"Cache took: {toc - tic:0.4f} seconds")
             resp = 'HTTP/1.0 200 OK\n\n' + content
             conn.send(resp.encode())
-            
-    sock.close()
-    conn.close()
+                
+        sock.close()
+        conn.close()
 
-def fetch_from_cache(baseURL):
+def getFromCache(baseURL):
     try:
         fin = open(baseURL)
         content = fin.read()
@@ -169,7 +202,7 @@ def fetch_from_cache(baseURL):
         return None
 
 
-def fetch_from_server(filename):
+def getFromServer(filename):
     req = Request(filename)
     try:
         response = urlopen(req)
@@ -180,7 +213,7 @@ def fetch_from_server(filename):
         return None
 
 
-def save_in_cache(filename, baseURL, content):
+def saveInCache(filename, baseURL, content):
     print('Saving a copy of {} in the cache'.format(filename))
     try:
         cached_file = open(baseURL, 'w')

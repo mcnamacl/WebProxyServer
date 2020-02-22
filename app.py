@@ -12,25 +12,35 @@ class proxy_cmd(Cmd):
     prompt = "> "
 
     def do_block(self, args):
-        url = args.rsplit(" ", 1) # args is string of input after create
+        url = args.rsplit(" ", 1) 
         url = url[0]
+        if not "www." in url:
+            url = "www." + url
         blockedURLs.append(url)
         print('Blocked :', url)
     
     def do_getblocked(self, args):
         print(blockedURLs)
     
+    def do_unblock(self, args):
+        url = args.rsplit(" ", 1) 
+        url = url[0]
+        if not "www." in url:
+            url = "www." + url
+        if url not in blockedURLs:
+            print('This url had not been previously blocked.')
+        else:
+            blockedURLs.remove(url)
+            print('Unblocked : ', url)
+    
     def do_help(self, args):
         print("To block a URL type: `block` followed by the url.")
+        print("To unblock a URL type: `unblock` followed by the url.")
         print("To see what URLS are currently blocked type: `getblocked`.")
-        print("To exit type: `exit`.")
-
-    def do_exit(self, args):
-        raise SystemExit()
 
 def startProxy():
     console = proxy_cmd()
-    _thread.start_new_thread(consoleThread, (console, None))
+    conThread = _thread.start_new_thread(consoleThread, (console, None))
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', 8080))
@@ -44,6 +54,9 @@ def startProxy():
     # Listens on port 8080 for connections.
     port = 8080
     while(1):
+        # if not :
+        #     print("Goodbye")
+        #     sys.exit()
         try:
             conn, _ = sock.accept()
             data = conn.recv(bufferSize)

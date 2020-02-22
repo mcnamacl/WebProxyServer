@@ -1,10 +1,11 @@
 import socket, _thread, sys, requests, os, time
 from urllib.request import Request, urlopen, HTTPError
 from cmd import Cmd
+import datetime
 
 max_conn = 5
 bufferSize = 8192
-cache = []
+cache = {}
 blockedURLs = []
 
 class proxy_cmd(Cmd):
@@ -54,9 +55,6 @@ def startProxy():
     # Listens on port 8080 for connections.
     port = 8080
     while(1):
-        # if not :
-        #     print("Goodbye")
-        #     sys.exit()
         try:
             conn, _ = sock.accept()
             data = conn.recv(bufferSize)
@@ -75,13 +73,13 @@ def decodeRequest(conn, data, port):
 
         # The recieved data is in bytes and therefore needs to be decoded.
         data = data.decode(encoding)
-        first_line = data.split('\n')[0]
-        first_line = first_line.split(' ')
+        tmp = data.split('\n')[0]
+        tmp = tmp.split(' ')
 
         # This is to tell whether we are dealing with HTTP or HTTPS.
-        check_method = first_line[0]
+        check_method = tmp[0]
 
-        url = first_line[1]
+        url = tmp[1]
         http_pos = url.find("://")
         if (http_pos == -1):
             tmp = url
@@ -113,7 +111,11 @@ def decodeRequest(conn, data, port):
             port = int((tmp[(port_pos+1):])[:baseURL_pos-port_pos-1])
             baseURL = tmp[:port_pos]
 
-        if baseURL in blockedURLs:
+        if "www." not in baseURL:
+            checkBlocked = "www." + baseURL
+        else: 
+            checkBlocked = baseURL
+        if checkBlocked in blockedURLs:
             print(f"{url} has been blocked.")
             conn.close()
             return
@@ -154,7 +156,7 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
                 bandwidth = float(bandwidth/1024)
                 bandwidth = "%.3s" % (str(bandwidth))
                 bandwidth = "%s KB" % (bandwidth)
-                #print("Request Complete: %s Bandwidth Used: %s " % (str(baseURL), str(bandwidth)))
+                # print("Request Complete: %s Bandwidth Used: %s " % (str(baseURL), str(bandwidth)))
             except socket.error as e:
                 pass
 
@@ -164,9 +166,8 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
             tic = time.perf_counter()
             sock.connect((baseURL, port))
             sock.send(data)
-            cache.append(baseURL)
             print("This request has not previously been cached.")
-            serv_file = getFromServer(url)
+            serv_file = getFromServer(url, baseURL)
             if serv_file:
                 saveInCache(url, baseURL, serv_file)
             
@@ -194,13 +195,17 @@ def proxyServer(baseURL, url, port, conn, data, check_method):
                 sys.exit(1)
             
         # HTTP that has been stored in cache previously.
-        else:
+        elif cache[baseURL] is not None and cache[baseURL] > datetime.datetime.now():
             tic = time.perf_counter()
             content = getFromCache(baseURL)
             toc = time.perf_counter()
             print(f"Cache took: {toc - tic:0.4f} seconds")
             resp = 'HTTP/1.0 200 OK\n\n' + content
             conn.send(resp.encode())
+        
+        # Remove from cache.
+        else:
+            del cache[baseURL]
                 
         sock.close()
         conn.close()
@@ -214,17 +219,34 @@ def getFromCache(baseURL):
     except IOError:
         return None
 
-
-def getFromServer(filename):
+def getFromServer(filename, baseURL):
     req = Request(filename)
     try:
         response = urlopen(req)
         response_headers = response.info()
+        response_headers = response_headers.as_string().split("\n")
+        expiry = None
+        index = 0
+        for header in response_headers:
+            if 'cache-control' in header.lower():
+                expiry = response_headers[index]
+            index = index + 1
+            
+        # The page is not to be cached.
+        if expiry is not None and "no-cache" in expiry.lower():
+            return
+
+        # Determine when the cached result is no longer useful.
+        if expiry is not None and "max-age" in expiry.lower():
+            expiry = expiry.split('=')
+            expiry = int(expiry[1])
+            currTime = datetime.datetime.now()
+            expiry = currTime + datetime.timedelta(0,expiry)
+        cache[baseURL] = expiry
         content = response.read().decode('utf-8')
         return content
     except HTTPError:
         return None
-
 
 def saveInCache(filename, baseURL, content):
     print('Saving a copy of {} in the cache'.format(filename))
@@ -234,6 +256,5 @@ def saveInCache(filename, baseURL, content):
         print(e)
     cached_file.write(content)
     cached_file.close()
-
 
 startProxy()

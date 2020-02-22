@@ -90,6 +90,8 @@ def decodeRequest(conn, req, port):
         # Breaks up the request into it's various components.
         check_method, url, baseURL, port = breakUpReq(req)
 
+        print(baseURL)
+
         # Necessary for checking a URL is blocked.
         if "www." not in baseURL:
             checkBlocked = "www." + baseURL
@@ -121,11 +123,14 @@ def breakUpReq(req):
     url = tmp[1]
     httpPos = url.find("://")
 
+    if (httpPos == -1):
+        tmp = url
     # HTTP Request
-    if check_method == "GET":
+    elif check_method == "GET":
         tmp = url[(httpPos+3):]
     # HTTPS Request
     else:
+        tmp = url[(httpPos+4):]
         tmp = url[(httpPos+4):]
     
     portPos = tmp.find(":")
@@ -155,6 +160,7 @@ def proxyServer(baseURL, url, port, conn, req, check_method):
     # Deals with HTTPS.
     if check_method == "CONNECT":
         try:
+            print(baseURL, url, port, conn, req, check_method)
             sock.connect((baseURL, port))
             resp = "HTTP/1.0 200 Connection established\r\nProxy-agent: Claires_Proxy\r\n\r\n"
             conn.sendall(resp.encode())
@@ -261,7 +267,7 @@ def cacheRequest(cacheFilename, baseURL):
             index = index + 1
             
         # The page is not to be cached.
-        if expiry is not None and "no-cache" in expiry.lower():
+        if expiry is not None and ("no-cache" in expiry.lower() or "private" in expiry.lower() or "no-store" in expiry.lower()):
             return True
 
         # Determine when the cached result is no longer useful.
@@ -273,7 +279,7 @@ def cacheRequest(cacheFilename, baseURL):
             expiry = currTime + datetime.timedelta(0,expiry)
         
         # Adds the baseURL as the key to the cache dictionary along with the time its due to 
-        # become invalid if  that exists.
+        # become invalid if that exists.
         cache[baseURL] = expiry
         info = response.read().decode(enc)
 

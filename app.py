@@ -276,7 +276,7 @@ def proxyServer(baseURL, url, port, cliConn, req, checkMethod):
 # Get info from cache.
 def getCachedVersion(baseURL):
     try:
-        readFile = open("C:/Users/mcnam/Documents/GitHub/WebProxyServer/cache" + baseURL)
+        readFile = open("C:/Users/mcnam/Documents/GitHub/WebProxyServer/cache/" + baseURL)
         info = readFile.read()
         readFile.close()
         return info
